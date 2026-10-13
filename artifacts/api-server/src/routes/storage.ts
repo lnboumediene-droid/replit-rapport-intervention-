@@ -4,7 +4,7 @@ import {
   RequestReportPhotoUploadResponse,
 } from '@workspace/api-zod';
 import { Router, type IRouter, type Request, type Response } from 'express';
-import { getAuth } from '@clerk/express';
+import { getIdentity } from '../lib/identity';
 
 import {
   ObjectNotFoundError,
@@ -15,7 +15,7 @@ const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
 router.post('/imports/request-upload-url', async (req: Request, res: Response) => {
-  const userId = getAuth(req).userId;
+  const userId = (await getIdentity(req))?.userId;
   if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
   const { fileName, contentType, size } = req.body ?? {};
   if (typeof fileName !== 'string' || !fileName.toLowerCase().endsWith('.pdf') || contentType !== 'application/pdf' ||
@@ -44,8 +44,8 @@ router.post('/imports/request-upload-url', async (req: Request, res: Response) =
   }
 });
 
-function authenticatedUserId(req: Request): string | null {
-  return getAuth(req).userId ?? null;
+async function authenticatedUserId(req: Request): Promise<string | null> {
+  return (await getIdentity(req))?.userId ?? null;
 }
 
 async function canReadPrivateObject(
@@ -84,7 +84,7 @@ async function canEditReport(userId: string, reportId: string): Promise<boolean>
 router.post(
   '/reports/:reportId/photos/request-upload-url',
   async (req: Request, res: Response) => {
-    const userId = authenticatedUserId(req);
+    const userId = await authenticatedUserId(req);
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
@@ -178,7 +178,7 @@ router.get(
  */
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
   try {
-    const userId = authenticatedUserId(req);
+    const userId = await authenticatedUserId(req);
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;

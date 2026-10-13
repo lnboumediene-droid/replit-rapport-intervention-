@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ClerkProvider, Show, SignIn, SignUp, useClerk } from '@clerk/react';
-import { publishableKeyFromHost } from '@clerk/react/internal';
-import { shadcn } from '@clerk/themes';
+import { fetchGensparkUser, type GensparkUser } from './genspark-auth';
 import {
   ArrowDownRight, ArrowLeft, ArrowRight, Building2, Camera, Check,
   ClipboardList, Eraser, FileUp, FilePlus2, FileText, Filter, Home, LoaderCircle, LogOut,
@@ -27,8 +25,15 @@ import { DeleteReportButton } from './DeleteReportButton';
 
 export const queryClient = new QueryClient();
 export const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
-const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+
+// Identity now comes from Genspark ("Sign in with Genspark" access mode) instead
+// of Clerk. The context mirrors the old Clerk `Show`/`useClerk` surface so the
+// rest of the app is unchanged: `signedIn` drives Protected/HomeRedirect, and
+// `signOut` hits the edge-provided logout endpoint.
+type AuthState = { loaded: boolean; user: GensparkUser | null };
+const GensparkAuthContext = createContext<AuthState>({ loaded: false, user: null });
+function useGensparkAuth() { return useContext(GensparkAuthContext); }
+function signOutGenspark() { window.location.href = '/__genspark_auth/logout'; }
 const roles: Record<string, string> = {
   intervenant: 'Intervenant', responsable_terrain: 'Responsable terrain',
   administratif: 'Administration', direction: 'Direction',
@@ -42,49 +47,6 @@ export const roleCanManage = (role?: string) => role === 'responsable_terrain' |
 function stripBase(path: string) {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || '/' : path;
 }
-
-const clerkAppearance = {
-  theme: shadcn,
-  cssLayerName: 'clerk',
-  options: {
-    logoPlacement: 'inside' as const,
-    logoLinkUrl: basePath || '/',
-    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
-  },
-  variables: {
-    colorPrimary: '#1F1B4D', colorForeground: '#1F1B4D', colorMutedForeground: '#777187',
-    colorDanger: '#B23D4F', colorBackground: '#FFFFFF', colorInput: '#FFFFFF',
-    colorInputForeground: '#1F1B4D', colorNeutral: '#e8dce0',
-    fontFamily: 'DM Sans', borderRadius: '0.7rem',
-  },
-  elements: {
-    rootBox: 'w-full flex justify-center',
-    cardBox: 'bg-white rounded-2xl w-[440px] max-w-full overflow-hidden shadow-xl',
-    card: '!shadow-none !border-0 !bg-transparent !rounded-none',
-    footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
-    headerTitle: 'text-[#1F1B4D] font-bold tracking-tight',
-    headerSubtitle: 'text-[#777187]',
-    socialButtonsBlockButtonText: 'text-[#1F1B4D] font-semibold',
-    formFieldLabel: 'text-[#514b69] font-semibold',
-    footerActionLink: 'text-[#B23D4F] font-bold',
-    footerActionText: 'text-[#777187]',
-    dividerText: 'text-[#777187]',
-    identityPreviewEditButton: 'text-[#B23D4F]',
-    formFieldSuccessText: 'text-emerald-700',
-    alertText: 'text-[#842d3d]',
-    logoBox: 'mb-2',
-    logoImage: 'rounded-lg',
-    socialButtonsBlockButton: 'border-[#e8dce0] bg-white',
-    formButtonPrimary: 'bg-[#1F1B4D] hover:bg-[#302b68] text-white',
-    formFieldInput: 'border-[#e8dce0] text-[#1F1B4D]',
-    footerAction: 'bg-transparent',
-    dividerLine: 'bg-[#eee5e8]',
-    alert: 'bg-[#FBE9EC]',
-    otpCodeFieldInput: 'border-[#e8dce0]',
-    formFieldRow: 'mb-4',
-    main: 'gap-5',
-  },
-};
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
   return <div className="brand" style={{ color: inverse ? '#fff' : '#1F1B4D', padding: 0 }}>
@@ -126,12 +88,11 @@ function Landing() {
   </>;
 }
 
-function AuthPage({ mode }: { mode: 'in' | 'up' }) {
-  return <div className="auth-wrap"><Link href="/" className="auth-logo"><Brand /></Link>
-    {mode === 'in'
-      ? <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
-      : <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />}
-  </div>;
+// With Genspark identity there is no in-app sign-in form: the Genspark edge
+// authenticates the visitor ("Sign in with Genspark" access mode). The legacy
+// /sign-in and /sign-up routes redirect home so old links keep working.
+function AuthPage(_props: { mode: 'in' | 'up' }) {
+  return <Redirect to="/" />;
 }
 
 const links = [
@@ -144,12 +105,14 @@ const links = [
 ];
 
 function Protected({ children }: { children: ReactNode }) {
-  return <><Show when="signed-in">{children}</Show><Show when="signed-out"><Redirect to="/" /></Show></>;
+  const { loaded, user } = useGensparkAuth();
+  if (!loaded) return <div className="grid"><div className="loading-block" /></div>;
+  if (!user) return <Redirect to="/" />;
+  return <>{children}</>;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [path] = useLocation();
-  const { signOut } = useClerk();
   const { data: user, error: profileError, refetch: refreshProfile } = useGetCurrentUser();
   const visibleLinks = links.filter((item) => (!item.manager || roleCanManage(user?.role)) && (!('admin' in item) || user?.role === 'administratif' || user?.role === 'direction'));
   if (profileError?.status === 401) {
@@ -165,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div style={{ width: 35, height: 35, borderRadius: 12, background: '#46416f', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2) || 'MS'}</div>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: 12, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name || 'Compte MSB-BAT'}</div><div style={{ fontSize: 10, color: '#aaa7c4', marginTop: 3 }}>{roles[user?.role || ''] || 'Chargement du profil'}</div></div>
         </div>
-        <button className="nav-link" style={{ width: '100%', border: 0, background: 'transparent', cursor: 'pointer' }} onClick={() => signOut({ redirectUrl: basePath || '/' })}><LogOut size={16} /> Se déconnecter</button>
+        <button className="nav-link" style={{ width: '100%', border: 0, background: 'transparent', cursor: 'pointer' }} onClick={() => signOutGenspark()}><LogOut size={16} /> Se déconnecter</button>
       </div>
     </aside>
     <div className="main-area">
@@ -182,10 +145,9 @@ export function Loading({ count = 3 }: { count?: number }) {
   return <div className="grid">{Array.from({ length: count }, (_, i) => <div key={i} className="loading-block" />)}</div>;
 }
 export function ErrorNotice({ retry, error }: { retry: () => void; error?: unknown }) {
-  const { signOut } = useClerk();
   const sessionRejected = typeof error === 'object' && error !== null && 'status' in error && error.status === 401;
   const timedOut = error instanceof Error && error.name === 'RequestTimeoutError';
-  return <div className="panel empty" role="alert"><div className="empty-mark"><X size={19} /></div><strong>{sessionRejected ? 'Votre session doit être renouvelée' : 'Impossible de charger ces informations'}</strong><p style={{ margin: '8px 0 15px', fontSize: 13 }}>{sessionRejected ? 'Le serveur ne reconnaît plus cette session. Reconnectez-vous pour retrouver vos dossiers ; vos données sont conservées.' : timedOut ? 'Le chargement a pris trop de temps. Vos données sont conservées ; cliquez sur Réessayer pour relancer la demande.' : 'Le serveur n’a pas pu charger ces données. Réessayez dans quelques instants.'}</p><div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}><button onClick={retry} className="btn btn-soft">Réessayer</button>{sessionRejected && <button onClick={() => { void signOut({ redirectUrl: basePath || '/' }); }} className="btn btn-primary">Renouveler ma connexion</button>}</div></div>;
+  return <div className="panel empty" role="alert"><div className="empty-mark"><X size={19} /></div><strong>{sessionRejected ? 'Votre session doit être renouvelée' : 'Impossible de charger ces informations'}</strong><p style={{ margin: '8px 0 15px', fontSize: 13 }}>{sessionRejected ? 'Le serveur ne reconnaît plus cette session. Reconnectez-vous pour retrouver vos dossiers ; vos données sont conservées.' : timedOut ? 'Le chargement a pris trop de temps. Vos données sont conservées ; cliquez sur Réessayer pour relancer la demande.' : 'Le serveur n’a pas pu charger ces données. Réessayez dans quelques instants.'}</p><div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}><button onClick={retry} className="btn btn-soft">Réessayer</button>{sessionRejected && <button onClick={() => signOutGenspark()} className="btn btn-primary">Renouveler ma connexion</button>}</div></div>;
 }
 export function requestFailure(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'status' in error) {
@@ -519,15 +481,13 @@ function SettingsPage() {
 }
 
 function HomeRedirect() {
-  return <><Show when="signed-in"><Redirect to="/portal" /></Show><Show when="signed-out"><Landing /></Show></>;
+  const { loaded, user } = useGensparkAuth();
+  if (!loaded) return null;
+  return user ? <Redirect to="/portal" /> : <Landing />;
 }
-function ClerkRoutes() {
-  const [, setLocation] = useLocation();
-  return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={clerkAppearance} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`}
-    localization={{ signIn: { start: { title: 'Ravi de vous retrouver', subtitle: 'Connectez-vous à votre espace MSB-BAT' } }, signUp: { start: { title: 'Créer un accès MSB-BAT', subtitle: 'Votre compte équipe commence ici' } } }}
-    routerPush={(to: string) => setLocation(stripBase(to))} routerReplace={(to: string) => setLocation(stripBase(to), { replace: true })}>
-    <QueryClientProvider client={queryClient}>
-      <ClerkQueryClientCacheInvalidator />
+function GensparkRoutes() {
+  return <QueryClientProvider client={queryClient}>
+      <GensparkQueryClientCacheInvalidator />
       <Switch>
         <Route path="/" component={HomeRedirect} />
         <Route path="/sign-in/*?" component={() => <AuthPage mode="in" />} />
@@ -544,21 +504,17 @@ function ClerkRoutes() {
         <Route path="/settings" component={SettingsPage} />
         <Route><NotFound /></Route>
       </Switch>
-    </QueryClientProvider>
-  </ClerkProvider>;
+    </QueryClientProvider>;
 }
-function ClerkQueryClientCacheInvalidator() {
-  const { addListener } = useClerk();
+function GensparkQueryClientCacheInvalidator() {
+  const { user } = useGensparkAuth();
   const client = useQueryClient();
   const previousUserId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    const unsubscribe = addListener(({ user }) => {
-      const userId = user?.id ?? null;
-      if (previousUserId.current !== undefined && previousUserId.current !== userId) client.clear();
-      previousUserId.current = userId;
-    });
-    return unsubscribe;
-  }, [addListener, client]);
+    const userId = user?.id ?? null;
+    if (previousUserId.current !== undefined && previousUserId.current !== userId) client.clear();
+    previousUserId.current = userId;
+  }, [user, client]);
   return null;
 }
 function NotFound() {
@@ -566,8 +522,17 @@ function NotFound() {
 }
 
 function App() {
-  if (!clerkPubKey) throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in .env file');
-  return <WouterRouter base={basePath}><ClerkRoutes /></WouterRouter>;
+  const [auth, setAuth] = useState<AuthState>({ loaded: false, user: null });
+  useEffect(() => {
+    let active = true;
+    fetchGensparkUser().then((user) => { if (active) setAuth({ loaded: true, user }); });
+    return () => { active = false; };
+  }, []);
+  return <WouterRouter base={basePath}>
+    <GensparkAuthContext.Provider value={auth}>
+      <GensparkRoutes />
+    </GensparkAuthContext.Provider>
+  </WouterRouter>;
 }
 
 export default App;

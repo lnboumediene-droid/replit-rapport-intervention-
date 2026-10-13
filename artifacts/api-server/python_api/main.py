@@ -380,16 +380,6 @@ def slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9-]+", "-", normalized.lower()).strip("-") or "site"
 
 
-def private_bucket_and_key(object_path: str) -> tuple[str, str]:
-    private_dir = os.environ.get("PRIVATE_OBJECT_DIR", "")
-    parts = private_dir.strip("/").split("/")
-    if len(parts) < 2 or not object_path.startswith("/objects/"):
-        raise RuntimeError("Invalid private object path")
-    bucket = parts[0]
-    key = "/".join(parts[1:] + [object_path.removeprefix("/objects/")])
-    return bucket, key
-
-
 def storage() -> StorageBackend:
     """Lazily build the configured private-storage backend.
 
