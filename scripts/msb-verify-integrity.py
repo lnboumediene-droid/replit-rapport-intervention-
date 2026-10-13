@@ -31,6 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 INTENTIONAL = {
     ".gitignore",
     "artifacts/api-server/python_api/main.py",
+    "artifacts/api-server/python_api/pdf_import_processing.py",
+    "artifacts/api-server/python_api/test_claude_import_response.py",
+    "artifacts/api-server/python_api/test_pdf_import.py",
     "artifacts/api-server/python_api/test_report_deletion.py",
     "artifacts/api-server/src/app.ts",
     "artifacts/api-server/src/routes/index.ts",

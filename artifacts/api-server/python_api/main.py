@@ -19,7 +19,7 @@ from urllib.parse import unquote
 from typing import Any, Literal
 
 import fitz
-from anthropic import Anthropic
+from ai_client import ai_api_key, ai_provider, ai_provider_label, build_ai_client
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from PIL import Image, ImageEnhance, ImageOps, ImageDraw
 from pydantic import BaseModel, Field
@@ -407,7 +407,8 @@ def delete_private_object(object_path: str) -> None:
 
 @app.get("/healthz")
 def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+    # The active AI provider is surfaced here so the choice is never implicit.
+    return {"status": "ok", "aiProvider": ai_provider(), "aiProviderLabel": ai_provider_label()}
 
 
 @app.get("/users/me")
@@ -846,10 +847,11 @@ def format_zone(report_id: str, zone_id: str, actor: Actor = ActorDep) -> dict[s
     notes = (zone["raw_notes"] or "").strip()
     if not notes:
         raise HTTPException(status_code=400, detail="Ajoutez des notes brutes avant la mise en forme")
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        raise HTTPException(status_code=503, detail="Clé Anthropic non configurée dans les Secrets Replit")
-    client = Anthropic(api_key=key)
+    # Explicit provider (ai_client); default is direct Claude. No silent switch:
+    # a missing key fails loudly instead of falling back to another provider.
+    if not ai_api_key():
+        raise HTTPException(status_code=503, detail="Clé Claude non configurée dans les secrets")
+    client = build_ai_client()
     prompt = (
         f"Dossier : client {report['client_name']}, site {report['site_name']}, "
         f"objet {report['object']}.\nZone : {zone['name']}\n<notes>\n{notes}\n</notes>"

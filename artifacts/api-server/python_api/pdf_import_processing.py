@@ -13,8 +13,9 @@ from decimal import Decimal
 from typing import Any
 
 import pymupdf
-from anthropic import Anthropic
 from PIL import Image, ImageEnhance, ImageOps
+
+from ai_client import build_ai_client
 
 MARKER = "[À COMPLÉTER]"
 MODEL = "claude-sonnet-5-5"
@@ -258,7 +259,9 @@ def parse_claude_response(response: Any) -> dict[str, Any]:
 
 
 def draft_with_claude(extracted: dict[str, Any], names: list[str]) -> dict[str, Any]:
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # Provider is explicit (ai_client); default is direct Claude. The base URL is
+    # always passed explicitly so the ambient ANTHROPIC_BASE_URL cannot switch it.
+    client = build_ai_client()
     payload = {"document": extracted["text"], "photos": [
         {k: v for k, v in p.items() if k != "bytes"} for p in extracted["photos"]]}
     response = client.messages.create(model=MODEL, max_tokens=10000, system=SYSTEM,

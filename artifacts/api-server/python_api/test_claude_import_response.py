@@ -52,14 +52,15 @@ class ClaudeImportResponseTests(unittest.TestCase):
                     parse_claude_response(response("{}", reason))
 
     def test_request_enforces_schema_with_key_only_client(self):
-        with patch("pdf_import_processing.Anthropic") as sdk:
+        with patch("ai_client.Anthropic") as sdk:
             sdk.return_value.messages.create.return_value = response(json.dumps(valid_data()))
             data = draft_with_claude(
                 {"text": "Date 07/10/2026. Reprise sur 5 m². Fouille ouverte. Zone nettoyée.", "photos": []},
                 ["SRP"],
             )
             self.assertEqual(data, valid_data())
-            self.assertEqual(set(sdk.call_args.kwargs), {"api_key"})
+            self.assertEqual(set(sdk.call_args.kwargs), {"api_key", "base_url"})
+            self.assertEqual(sdk.call_args.kwargs["base_url"], "https://api.anthropic.com")
             config = sdk.return_value.messages.create.call_args.kwargs["output_config"]
             self.assertEqual(config["format"], {"type": "json_schema", "schema": IMPORT_SCHEMA})
 
@@ -71,7 +72,7 @@ class ClaudeImportResponseTests(unittest.TestCase):
         ]:
             data = valid_data()
             data[key] = value
-            with self.subTest(key=key), patch("pdf_import_processing.Anthropic") as sdk:
+            with self.subTest(key=key), patch("ai_client.Anthropic") as sdk:
                 sdk.return_value.messages.create.return_value = response(f"```json\n{json.dumps(data)}\n```")
                 with self.assertRaisesRegex(ValueError, message):
                     draft_with_claude({"text": "Date 07/10/2026. Reprise sur 5 m².", "photos": []}, ["SRP"])

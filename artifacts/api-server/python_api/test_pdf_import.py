@@ -73,11 +73,12 @@ class PdfImportTests(unittest.TestCase):
                 "findings": ["Dalle endommagée."], "workDone": ["Reprise sur 99 m²."],
                 "conclusion": ["Zone nettoyée."], "photos": [], "a_completer": []}
         response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=json.dumps(data))])
-        with patch("pdf_import_processing.Anthropic") as sdk:
+        with patch("ai_client.Anthropic") as sdk:
             sdk.return_value.messages.create.return_value = response
             with self.assertRaisesRegex(ValueError, "Chiffres absents"):
                 draft_with_claude({"text": "Date 07/10/2026. Reprise sur 5 m².", "photos": []}, ["SRP"])
-            self.assertEqual(set(sdk.call_args.kwargs), {"api_key"})
+            self.assertEqual(set(sdk.call_args.kwargs), {"api_key", "base_url"})
+            self.assertEqual(sdk.call_args.kwargs["base_url"], "https://api.anthropic.com")
 
     def test_cleanup_and_images(self):
         self.assertFalse(text_issues(clean_text("S.R.P.\nS R P\nSRP\nCâble HT 20 kV", ["SRP"]), ["SRP"]))
