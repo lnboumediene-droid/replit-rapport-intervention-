@@ -20,3 +20,6 @@ msb-data/
 .pnpm-install.log
 __pycache__/
 *.pyc
+
+# Test run outputs (regenerable)
+.agents/
