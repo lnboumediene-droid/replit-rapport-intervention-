@@ -1,18 +1,13 @@
-import { Readable } from 'stream';
+import express, { Router, type IRouter, type Request, type Response } from 'express';
 import {
   RequestReportPhotoUploadBody,
   RequestReportPhotoUploadResponse,
 } from '@workspace/api-zod';
-import { Router, type IRouter, type Request, type Response } from 'express';
 import { getIdentity } from '../lib/identity';
-
-import {
-  ObjectNotFoundError,
-  ObjectStorageService,
-} from '../lib/objectStorage';
+import { ObjectNotFoundError } from '../lib/objectStorage';
+import { storageBackend } from '../lib/privateStorage';
 
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
 
 router.post('/imports/request-upload-url', async (req: Request, res: Response) => {
   const userId = (await getIdentity(req))?.userId;
@@ -30,14 +25,14 @@ router.post('/imports/request-upload-url', async (req: Request, res: Response) =
     if (!permission.ok) throw new Error('Import permission service unavailable');
     const access = await permission.json() as { allowed: boolean };
     if (!access.allowed) { res.status(403).json({ detail: 'Import réservé aux responsables, à l’administratif et à la direction.' }); return; }
-    const uploadUrl = await objectStorageService.getObjectEntityUploadURL();
+    const target = await storageBackend().createUploadTarget();
     const grant = await fetch('http://127.0.0.1:8091/internal/import-grant', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, fileName, size, objectPath: objectStorageService.normalizeObjectEntityPath(uploadUrl) }),
+      body: JSON.stringify({ userId, fileName, size, objectPath: target.objectPath }),
     });
     if (!grant.ok) throw new Error('Unable to register private import');
     const registered = await grant.json() as { importId: string };
-    res.json({ importId: registered.importId, uploadUrl });
+    res.json({ importId: registered.importId, uploadUrl: absoluteUploadUrl(req, target.uploadUrl) });
   } catch (error) {
     req.log.error({ err: error }, 'PDF import upload unavailable');
     res.status(503).json({ detail: 'L’import privé est momentanément indisponible.' });
@@ -46,6 +41,21 @@ router.post('/imports/request-upload-url', async (req: Request, res: Response) =
 
 async function authenticatedUserId(req: Request): Promise<string | null> {
   return (await getIdentity(req))?.userId ?? null;
+}
+
+/**
+ * The local backend hands back a same-origin path (`/api/storage/upload/<id>`)
+ * that the browser PUTs to; GCS mode hands back an already-absolute signed URL.
+ * The API contract requires an absolute URL, so relative targets are resolved
+ * against the incoming request (honouring the proxy's forwarded headers).
+ */
+function absoluteUploadUrl(req: Request, url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  const forwardedProto = req.get('x-forwarded-proto')?.split(',')[0]?.trim();
+  const forwardedHost = req.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const proto = forwardedProto || req.protocol || 'http';
+  const host = forwardedHost || req.get('host') || `127.0.0.1:${process.env.PORT ?? 5000}`;
+  return `${proto}://${host}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 async function canReadPrivateObject(
@@ -113,14 +123,12 @@ router.post(
         return;
       }
 
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      const objectPath =
-        objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const target = await storageBackend().createUploadTarget();
 
       res.json(
         RequestReportPhotoUploadResponse.parse({
-          uploadUrl: uploadURL,
-          objectPath,
+          uploadUrl: absoluteUploadUrl(req, target.uploadUrl),
+          objectPath: target.objectPath,
         }),
       );
     } catch (error) {
@@ -131,11 +139,44 @@ router.post(
 );
 
 /**
+ * PUT /storage/upload/:uploadId
+ *
+ * Local-storage upload endpoint. In GCS mode the client PUTs straight to the
+ * presigned bucket URL instead; in local mode this route receives the bytes and
+ * writes them under the private root at the reserved `/objects/uploads/<id>`
+ * path. The upload id is an unguessable UUID allocated by createUploadTarget,
+ * so possession of the URL is the capability.
+ */
+router.put(
+  '/storage/upload/:uploadId',
+  express.raw({ type: '*/*', limit: '30mb' }),
+  async (req: Request, res: Response) => {
+    try {
+      const raw = req.params.uploadId;
+      const uploadId = Array.isArray(raw) ? raw[0] : raw;
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      if (body.length === 0) {
+        res.status(400).json({ error: 'Empty upload' });
+        return;
+      }
+      await storageBackend().putUpload(uploadId, body, req.get('content-type') ?? '');
+      res.status(201).end();
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: 'Upload target not found' });
+        return;
+      }
+      req.log.error({ err: error }, 'Error storing upload');
+      res.status(500).json({ error: 'Failed to store upload' });
+    }
+  },
+);
+
+/**
  * GET /storage/public-objects/*
  *
- * Serve public assets from PUBLIC_OBJECT_SEARCH_PATHS.
- * These are unconditionally public — no authentication or ACL checks.
- * IMPORTANT: Always provide this endpoint when object storage is set up.
+ * Serve public assets. This application has no public bucket; the route is kept
+ * for API compatibility and returns 404 when no backend provides the asset.
  */
 router.get(
   '/storage/public-objects/*filePath',
@@ -143,22 +184,16 @@ router.get(
     try {
       const raw = req.params.filePath;
       const filePath = Array.isArray(raw) ? raw.join('/') : raw;
-      const file = await objectStorageService.searchPublicObject(filePath);
-      if (!file) {
+      const response = await storageBackend().getPublicObject(filePath);
+      if (!response) {
         res.status(404).json({ error: 'File not found' });
         return;
       }
-
-      const response = await objectStorageService.downloadObject(file);
-
       res.status(response.status);
       response.headers.forEach((value, key) => res.setHeader(key, value));
-
       if (response.body) {
-        const nodeStream = Readable.fromWeb(
-          response.body as ReadableStream<Uint8Array>,
-        );
-        nodeStream.pipe(res);
+        const { Readable } = await import('node:stream');
+        Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>).pipe(res);
       } else {
         res.end();
       }
@@ -172,9 +207,9 @@ router.get(
 /**
  * GET /storage/objects/*
  *
- * Serve object entities from PRIVATE_OBJECT_DIR.
- * These are served from a separate path from /public-objects and can optionally
- * be protected with authentication or ACL checks based on the use case.
+ * Serve private objects through the configured backend (local directory by
+ * default, GCS when selected). Every request is authorised against the report
+ * ACL before the bytes are read.
  */
 router.get('/storage/objects/*path', async (req: Request, res: Response) => {
   try {
@@ -192,10 +227,8 @@ router.get('/storage/objects/*path', async (req: Request, res: Response) => {
       res.status(403).json({ error: 'Forbidden' });
       return;
     }
-    const objectFile =
-      await objectStorageService.getObjectEntityFile(objectPath);
 
-    const response = await objectStorageService.downloadObject(objectFile);
+    const response = await storageBackend().getPrivateObject(objectPath);
 
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
@@ -208,10 +241,8 @@ router.get('/storage/objects/*path', async (req: Request, res: Response) => {
       res.setHeader('Content-Disposition', 'attachment');
     }
     if (response.body) {
-      const nodeStream = Readable.fromWeb(
-        response.body as ReadableStream<Uint8Array>,
-      );
-      nodeStream.pipe(res);
+      const { Readable } = await import('node:stream');
+      Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>).pipe(res);
     } else {
       res.end();
     }
