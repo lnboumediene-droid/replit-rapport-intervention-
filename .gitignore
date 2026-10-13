@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Private data, exports and restored files (CONFIDENTIAL — never commit)
+donnees/
+fichiers/
+msb-data/
+*.env
+.env
+.env.*
+
+# Logs / runtime
+*.log
+.pnpm-install.log
+__pycache__/
+*.pyc
