@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="MSB-BAT">
+  <rect width="48" height="48" rx="13" fill="#1F1B4D"/>
+  <path d="M12 34V14h5.4l6.6 9.4 6.6-9.4H36v20h-5.2V22l-6.8 9.1L17.2 22v12z" fill="#fff"/>
+  <circle cx="37" cy="36" r="6" fill="#B23D4F"/>
+</svg>
