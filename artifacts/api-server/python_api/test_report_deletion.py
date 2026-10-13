@@ -1,10 +1,10 @@
 """Deletion checks use isolated synthetic dossiers; file deletion is a test double."""
+import tempfile
 import unittest
 import uuid
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
-from google.api_core.exceptions import NotFound
 
 import main
 
@@ -104,9 +104,17 @@ class ReportDeletionTests(unittest.TestCase):
         self.assertEqual(self.delete("invalid").status_code, 422)
 
     def test_already_missing_file_cleanup_is_success(self):
-        storage = MagicMock()
-        storage.bucket.return_value.blob.return_value.delete.side_effect = NotFound("gone")
-        with patch.object(main, "gcs", return_value=storage), \
-             patch.object(main, "private_bucket_and_key", return_value=("test-bucket", "test-key")):
+        backend = MagicMock()
+        backend.delete.return_value = None
+        with patch.object(main, "storage", return_value=backend):
             main.delete_private_object("/objects/test")
-        storage.bucket.return_value.blob.return_value.delete.assert_called_once_with(timeout=10, retry=None)
+        backend.delete.assert_called_once_with("/objects/test")
+
+    def test_local_backend_missing_file_cleanup_is_success(self):
+        from private_storage import LocalBackend, ObjectNotFound
+
+        backend = LocalBackend(tempfile.mkdtemp())
+        with self.assertRaises(ObjectNotFound):
+            backend.download("/objects/absent")
+        # Deleting an object that is not present is a successful cleanup.
+        backend.delete("/objects/absent")

@@ -21,17 +21,16 @@ from typing import Any, Literal
 import fitz
 from anthropic import Anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from google.auth import load_credentials_from_dict
-from google.cloud import storage
-from google.api_core.exceptions import NotFound
 from PIL import Image, ImageEnhance, ImageOps, ImageDraw
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
+from private_storage import StorageBackend, build_backend
+
 app = FastAPI(title="MSB-BAT Reports API", version="1.0.0")
 engine: Engine | None = None
-gcs_client: storage.Client | None = None
+storage_backend: StorageBackend | None = None
 
 MANAGER_ROLES = {"responsable_terrain", "administratif", "direction"}
 STATUSES = {
@@ -381,53 +380,29 @@ def slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9-]+", "-", normalized.lower()).strip("-") or "site"
 
 
-def private_bucket_and_key(object_path: str) -> tuple[str, str]:
-    private_dir = os.environ.get("PRIVATE_OBJECT_DIR", "")
-    parts = private_dir.strip("/").split("/")
-    if len(parts) < 2 or not object_path.startswith("/objects/"):
-        raise RuntimeError("Invalid private object path")
-    bucket = parts[0]
-    key = "/".join(parts[1:] + [object_path.removeprefix("/objects/")])
-    return bucket, key
+def storage() -> StorageBackend:
+    """Lazily build the configured private-storage backend.
 
-
-def gcs() -> storage.Client:
-    global gcs_client
-    if gcs_client is None:
-        credentials = load_credentials_from_dict(
-            {
-                "type": "external_account",
-                "audience": "replit",
-                "subject_token_type": "access_token",
-                "token_url": "http://127.0.0.1:1106/token",
-                "credential_source": {
-                    "url": "http://127.0.0.1:1106/credential",
-                    "format": {"type": "json", "subject_token_field_name": "access_token"},
-                },
-                "universe_domain": "googleapis.com",
-            }
-        )[0]
-        gcs_client = storage.Client(project="", credentials=credentials)
-    return gcs_client
+    The backend is chosen once from the environment (see ``private_storage``).
+    Default is a local private directory, so the service starts without the
+    Replit sidecar; ``MSB_STORAGE_BACKEND=gcs`` restores the original transport.
+    """
+    global storage_backend
+    if storage_backend is None:
+        storage_backend = build_backend()
+    return storage_backend
 
 
 def download_private_object(object_path: str) -> bytes:
-    bucket, key = private_bucket_and_key(object_path)
-    return gcs().bucket(bucket).blob(key).download_as_bytes()
+    return storage().download(object_path)
 
 
 def upload_private_object(object_path: str, content: bytes, content_type: str) -> None:
-    bucket, key = private_bucket_and_key(object_path)
-    gcs().bucket(bucket).blob(key).upload_from_string(content, content_type=content_type)
+    storage().upload(object_path, content, content_type)
 
 
 def delete_private_object(object_path: str) -> None:
-    bucket, key = private_bucket_and_key(object_path)
-    try:
-        gcs().bucket(bucket).blob(key).delete(timeout=10, retry=None)
-    except NotFound:
-        # Already removed is a successful cleanup, not a failed deletion.
-        pass
+    storage().delete(object_path)
 
 
 @app.get("/healthz")

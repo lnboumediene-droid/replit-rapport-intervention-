@@ -72,10 +72,26 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Outside Replit the frontend and the Express gateway are separate
+    // processes; proxy /api to the gateway so the browser keeps a single
+    // origin (session cookies + Clerk proxy keep working) exactly as the
+    // Replit reverse proxy used to do.
+    proxy: {
+      '/api': {
+        target: process.env.MSB_API_ORIGIN || 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: process.env.MSB_API_ORIGIN || 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+    },
   },
 });
