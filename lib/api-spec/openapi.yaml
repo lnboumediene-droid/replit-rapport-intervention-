@@ -1,0 +1,949 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API de l’application de rapports d’intervention MSB-BAT
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: users
+  - name: dashboard
+  - name: clients
+  - name: sites
+  - name: reports
+  - name: storage
+paths:
+  /imports/request-upload-url:
+    post:
+      operationId: requestPdfImportUpload
+      tags: [storage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PdfImportUploadInput" }
+      responses:
+        "200":
+          description: Upload privé autorisé
+          content:
+            application/json:
+              schema: { type: object, required: [importId, uploadUrl], properties: { importId: { type: string }, uploadUrl: { type: string } } }
+  /imports:
+    post:
+      operationId: startPdfImport
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PdfImportStartInput" }
+      responses:
+        "202":
+          description: Lecture lancée
+          content:
+            application/json:
+              schema: { type: object, required: [reportId], properties: { reportId: { type: string } } }
+  /reports/{reportId}/import:
+    parameters: [{ in: path, name: reportId, required: true, schema: { type: string } }]
+    get:
+      operationId: getPdfImport
+      tags: [reports]
+      responses:
+        "200":
+          description: État et source
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PdfImport" }
+  /reports/{reportId}/import/retry:
+    parameters: [{ in: path, name: reportId, required: true, schema: { type: string } }]
+    post:
+      operationId: retryPdfImport
+      tags: [reports]
+      responses:
+        "202":
+          description: Lecture relancée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PdfImport" }
+  /reports/{reportId}/import/pages/{pageNumber}:
+    get:
+      operationId: getPdfImportPage
+      tags: [reports]
+      parameters:
+        - { in: path, name: reportId, required: true, schema: { type: string } }
+        - { in: path, name: pageNumber, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Aperçu privé d’une page du PDF original, sans contenu actif
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+  /reports/{reportId}/import-review:
+    parameters: [{ in: path, name: reportId, required: true, schema: { type: string } }]
+    put:
+      operationId: savePdfImportReview
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportReviewInput" }
+      responses:
+        "200":
+          description: Contrôle enregistré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PdfImport" }
+  /admin/erased-names:
+    get:
+      operationId: listErasedNames
+      tags: [reports]
+      responses:
+        "200":
+          description: Noms à effacer
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ErasedName" } }
+    post:
+      operationId: addErasedName
+      tags: [reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ErasedNameInput" }
+      responses:
+        "201":
+          description: Nom ajouté
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErasedName" }
+  /admin/erased-names/{nameId}:
+    delete:
+      operationId: deleteErasedName
+      tags: [reports]
+      parameters: [{ in: path, name: nameId, required: true, schema: { type: string } }]
+      responses:
+        "204": { description: Nom supprimé }
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      tags: [users]
+      summary: Récupérer le profil et le rôle de l’utilisateur connecté
+      responses:
+        "200":
+          description: Profil utilisateur
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Résumé des dossiers accessibles à l’utilisateur
+      responses:
+        "200":
+          description: Résumé du tableau de bord
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /clients:
+    get:
+      operationId: listClients
+      tags: [clients]
+      summary: Lister les clients
+      responses:
+        "200":
+          description: Clients actifs et inactifs accessibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+    post:
+      operationId: createClient
+      tags: [clients]
+      summary: Créer un client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientInput"
+      responses:
+        "201":
+          description: Client créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+  /clients/{clientId}:
+    patch:
+      operationId: updateClient
+      tags: [clients]
+      summary: Modifier ou désactiver un client
+      parameters:
+        - $ref: "#/components/parameters/ClientId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientUpdate"
+      responses:
+        "200":
+          description: Client modifié
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+  /sites:
+    get:
+      operationId: listSites
+      tags: [sites]
+      summary: Lister les sites, éventuellement filtrés par client
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sites correspondants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Site"
+    post:
+      operationId: createSite
+      tags: [sites]
+      summary: Créer un site pour un client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteInput"
+      responses:
+        "201":
+          description: Site créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+  /sites/{siteId}:
+    patch:
+      operationId: updateSite
+      tags: [sites]
+      summary: Modifier ou désactiver un site
+      parameters:
+        - $ref: "#/components/parameters/SiteId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteUpdate"
+      responses:
+        "200":
+          description: Site modifié
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+  /reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: Rechercher et filtrer les dossiers d’intervention
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: siteId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ReportStatus"
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dossiers accessibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportSummary"
+    post:
+      operationId: createReport
+      tags: [reports]
+      summary: Créer un dossier d’intervention
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportInput"
+      responses:
+        "201":
+          description: Dossier créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+  /reports/{reportId}:
+    delete:
+      operationId: deleteReport
+      tags: [reports]
+      summary: Supprimer définitivement un dossier et ses fichiers associés
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Dossier supprimé et résultat du nettoyage des fichiers privés
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportDeletion"
+        "403":
+          description: Droit responsable requis
+        "404":
+          description: Dossier introuvable
+        "409":
+          description: Analyse du PDF en cours
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: Consulter la fiche complète du rapport
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Fiche unique du rapport
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+    patch:
+      operationId: updateReport
+      tags: [reports]
+      summary: Modifier les informations générales du dossier
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportUpdate"
+      responses:
+        "200":
+          description: Dossier modifié
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+  /reports/{reportId}/zones:
+    post:
+      operationId: createReportZone
+      tags: [reports]
+      summary: Ajouter une zone au dossier
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ZoneInput"
+      responses:
+        "201":
+          description: Zone ajoutée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Zone"
+  /reports/{reportId}/zones/{zoneId}:
+    patch:
+      operationId: updateReportZone
+      tags: [reports]
+      summary: Modifier les notes ou le contenu d’une zone
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/ZoneId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ZoneUpdate"
+      responses:
+        "200":
+          description: Zone modifiée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Zone"
+  /reports/{reportId}/zones/{zoneId}/format:
+    post:
+      operationId: formatReportZone
+      tags: [reports]
+      summary: Proposer une mise en forme IA sans modifier la fiche
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/ZoneId"
+      responses:
+        "200":
+          description: Proposition à comparer et accepter manuellement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FormatProposal"
+  /reports/{reportId}/zones/{zoneId}/apply-format:
+    post:
+      operationId: applyReportZoneFormat
+      tags: [reports]
+      summary: Appliquer la proposition IA après validation de l’utilisateur
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/ZoneId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormatProposal"
+      responses:
+        "200":
+          description: Proposition appliquée à la fiche
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Zone"
+  /reports/{reportId}/photos/request-upload-url:
+    post:
+      operationId: requestReportPhotoUpload
+      tags: [storage]
+      summary: Obtenir une URL signée pour charger une photo dans le stockage privé
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhotoUploadInput"
+      responses:
+        "200":
+          description: URL temporaire d’envoi et chemin privé de l’objet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoUploadTarget"
+  /reports/{reportId}/photos:
+    post:
+      operationId: createReportPhoto
+      tags: [reports]
+      summary: Enregistrer une photo déjà envoyée dans le stockage privé
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhotoInput"
+      responses:
+        "201":
+          description: Photo associée à une zone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+  /reports/{reportId}/photos/{photoId}:
+    patch:
+      operationId: updateReportPhoto
+      tags: [reports]
+      summary: Modifier une légende, une catégorie ou un ordre de photo
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/PhotoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhotoUpdate"
+      responses:
+        "200":
+          description: Photo modifiée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+  /reports/{reportId}/status:
+    post:
+      operationId: transitionReportStatus
+      tags: [reports]
+      summary: Demander ou effectuer une transition de statut autorisée par le rôle
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportStatusInput"
+      responses:
+        "200":
+          description: Statut modifié
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+  /reports/{reportId}/pdf:
+    post:
+      operationId: generateReportPdf
+      tags: [reports]
+      summary: Générer et contrôler une nouvelle version PDF du rapport
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "201":
+          description: Rapport PDF généré et archivé sans écraser les versions précédentes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportVersion"
+  /reports/{reportId}/versions:
+    get:
+      operationId: listReportVersions
+      tags: [reports]
+      summary: Lister les versions PDF d’un rapport
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: Versions existantes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportVersion"
+components:
+  parameters:
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SiteId:
+      name: siteId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ZoneId:
+      name: zoneId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PhotoId:
+      name: photoId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    PdfImportUploadInput:
+      type: object
+      required: [fileName, contentType, size]
+      properties:
+        fileName: { type: string }
+        contentType: { type: string }
+        size: { type: integer }
+    PdfImportStartInput:
+      type: object
+      required: [importId, siteId]
+      properties:
+        importId: { type: string }
+        siteId: { type: string }
+    ErasedNameInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+    ErasedName:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    PdfImport:
+      type: object
+      required: [id, reportId, fileName, sourceUrl, status, warnings, missing, reviewed, createdAt, createdByName]
+      properties:
+        id: { type: string }
+        reportId: { type: string }
+        fileName: { type: string }
+        sourceUrl: { type: string }
+        previewUrl: { type: string }
+        pageCount: { type: integer }
+        status: { type: string, enum: [uploaded, processing, ready, failed] }
+        error: { type: ["string", "null"] }
+        warnings: { type: array, items: { type: string } }
+        missing: { type: array, items: { type: string } }
+        reviewed: { type: boolean }
+        createdAt: { type: string }
+        createdByName: { type: string }
+    ImportReviewInput:
+      type: object
+      required: [siteId, dates, object, interventionState, context, findings, workDone, conclusion, photos, reviewed]
+      properties:
+        siteId: { type: string }
+        dates: { type: array, items: { type: string, format: date } }
+        object: { type: string }
+        tenant: { type: ["string", "null"] }
+        interventionState: { type: string, enum: [realisee, en_cours] }
+        context: { type: string }
+        findings: { type: array, items: { type: string } }
+        workDone: { type: array, items: { type: string } }
+        conclusion: { type: array, items: { type: string } }
+        reviewed: { type: boolean }
+        photos:
+          type: array
+          items:
+            type: object
+            required: [id, groupTitle, order, deleted]
+            properties:
+              id: { type: string }
+              groupTitle: { type: string }
+              caption: { type: ["string", "null"] }
+              order: { type: integer }
+              deleted: { type: boolean }
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    UserRole:
+      type: string
+      enum: [intervenant, responsable_terrain, administratif, direction]
+    ReportStatus:
+      type: string
+      enum: [brouillon, a_verifier, a_corriger, valide, pret_a_envoyer, envoye]
+    PhotoCategory:
+      type: string
+      enum: [avant, apres, autre]
+    UserProfile:
+      type: object
+      required: [id, email, name, role]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/UserRole" }
+    DashboardSummary:
+      type: object
+      required: [total, byStatus, recent]
+      properties:
+        total: { type: integer }
+        byStatus:
+          type: array
+          items:
+            type: object
+            required: [status, count]
+            properties:
+              status: { $ref: "#/components/schemas/ReportStatus" }
+              count: { type: integer }
+        recent:
+          type: array
+          items: { $ref: "#/components/schemas/ReportSummary" }
+    Client:
+      type: object
+      required: [id, name, active, siteCount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        active: { type: boolean }
+        siteCount: { type: integer }
+    ClientInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+    ClientUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        active: { type: boolean }
+    Site:
+      type: object
+      required: [id, clientId, clientName, name, address, active]
+      properties:
+        id: { type: string, format: uuid }
+        clientId: { type: string, format: uuid }
+        clientName: { type: string }
+        name: { type: string }
+        address: { type: string }
+        tenant: { type: ["string", "null"] }
+        active: { type: boolean }
+    SiteInput:
+      type: object
+      required: [clientId, name, address]
+      properties:
+        clientId: { type: string, format: uuid }
+        name: { type: string, minLength: 1 }
+        address: { type: string, minLength: 1 }
+        tenant: { type: string }
+    SiteUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        address: { type: string, minLength: 1 }
+        tenant: { type: ["string", "null"] }
+        active: { type: boolean }
+    ReportSummary:
+      type: object
+      required: [id, clientId, clientName, siteId, siteName, address, date, object, status, zoneCount, photoCount]
+      properties:
+        id: { type: string, format: uuid }
+        clientId: { type: string, format: uuid }
+        clientName: { type: string }
+        siteId: { type: string, format: uuid }
+        siteName: { type: string }
+        address: { type: string }
+        date: { type: string, format: date }
+        tenant: { type: ["string", "null"] }
+        object: { type: string }
+        workOrder: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/ReportStatus" }
+        zoneCount: { type: integer }
+        photoCount: { type: integer }
+    Report:
+      allOf:
+        - $ref: "#/components/schemas/ReportSummary"
+        - type: object
+          required: [zones, missingFields]
+          properties:
+            interventionDates: { type: array, items: { type: string } }
+            importPending: { type: boolean }
+            interventionState:
+              type: string
+              enum: [realisee, en_cours]
+            conclusion:
+              type: array
+              items: { type: string }
+            zones:
+              type: array
+              items: { $ref: "#/components/schemas/Zone" }
+            missingFields:
+              type: array
+              items: { type: string }
+    ReportInput:
+      type: object
+      required: [siteId, date]
+      properties:
+        interventionState: { type: string, enum: [realisee, en_cours] }
+        conclusion:
+          type: array
+          items: { type: string }
+        siteId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        tenant: { type: string }
+        object: { type: string, maxLength: 500 }
+        workOrder: { type: string }
+        status: { $ref: "#/components/schemas/ReportStatus" }
+    ReportDeletion:
+      type: object
+      required: [deleted, cleanupPending]
+      properties:
+        deleted: { type: boolean }
+        cleanupPending: { type: boolean }
+    ReportUpdate:
+      type: object
+      properties:
+        interventionState: { type: string, enum: [realisee, en_cours] }
+        conclusion:
+          type: array
+          items: { type: string }
+        siteId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        tenant: { type: ["string", "null"] }
+        object: { type: string, maxLength: 500 }
+        workOrder: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/ReportStatus" }
+    Zone:
+      type: object
+      required: [id, name, rawNotes, context, findings, photos, order]
+      properties:
+        workDone:
+          type: array
+          items: { type: string }
+        id: { type: string, format: uuid }
+        name: { type: string }
+        rawNotes: { type: ["string", "null"] }
+        context: { type: ["string", "null"] }
+        findings:
+          type: array
+          items: { type: string }
+        photos:
+          type: array
+          items: { $ref: "#/components/schemas/Photo" }
+        order: { type: integer }
+    ZoneInput:
+      type: object
+      required: [name]
+      properties:
+        workDone:
+          type: array
+          items: { type: string }
+        name: { type: string, minLength: 1 }
+        rawNotes: { type: string }
+        context: { type: string }
+        findings:
+          type: array
+          items: { type: string }
+    ZoneUpdate:
+      type: object
+      properties:
+        workDone:
+          type: array
+          items: { type: string }
+        name: { type: string, minLength: 1 }
+        rawNotes: { type: ["string", "null"] }
+        context: { type: ["string", "null"] }
+        findings:
+          type: array
+          items: { type: string }
+        order: { type: integer }
+    FormatProposal:
+      type: object
+      required: [context, findings, missing, alerts]
+      properties:
+        workDone:
+          type: array
+          items: { type: string }
+        context: { type: ["string", "null"] }
+        findings:
+          type: array
+          items: { type: string }
+        missing:
+          type: array
+          items: { type: string }
+        alerts:
+          type: array
+          items: { type: string }
+    Photo:
+      type: object
+      required: [id, zoneId, objectPath, caption, category, order, url]
+      properties:
+        groupTitle: { type: ["string", "null"] }
+        id: { type: string, format: uuid }
+        zoneId: { type: string, format: uuid }
+        objectPath: { type: string }
+        caption: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/PhotoCategory" }
+        order: { type: integer }
+        url: { type: string }
+    PhotoUploadInput:
+      type: object
+      required: [fileName, contentType, size]
+      properties:
+        fileName: { type: string }
+        contentType: { type: string }
+        size: { type: integer, maximum: 12582912 }
+    PhotoUploadTarget:
+      type: object
+      required: [uploadUrl, objectPath]
+      properties:
+        uploadUrl: { type: string, format: uri }
+        objectPath: { type: string }
+    PhotoInput:
+      type: object
+      required: [zoneId, objectPath]
+      properties:
+        groupTitle: { type: string }
+        zoneId: { type: string, format: uuid }
+        objectPath: { type: string }
+        caption: { type: string }
+        category: { $ref: "#/components/schemas/PhotoCategory" }
+    PhotoUpdate:
+      type: object
+      properties:
+        groupTitle: { type: ["string", "null"] }
+        caption: { type: ["string", "null"] }
+        category: { $ref: "#/components/schemas/PhotoCategory" }
+        order: { type: integer }
+    ReportStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/ReportStatus" }
+        comment: { type: string }
+    ReportVersion:
+      type: object
+      required: [id, version, fileName, createdAt, compliant, downloadUrl, issues]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer }
+        fileName: { type: string }
+        createdAt: { type: string, format: date-time }
+        compliant: { type: boolean }
+        downloadUrl: { type: string }
+        issues:
+          type: array
+          items: { type: string }
+

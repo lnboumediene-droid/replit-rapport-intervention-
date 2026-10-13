@@ -1,0 +1,10 @@
+anthropic
+fastapi
+google-auth
+google-cloud-storage
+pillow
+psycopg[binary]
+pymupdf
+reportlab
+sqlalchemy
+uvicorn[standard]
